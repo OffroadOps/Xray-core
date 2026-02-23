@@ -32,9 +32,11 @@ jobs:
 
       - name: Get latest upstream release tag
         id: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # 获取上游最新 release tag
-          LATEST_TAG=$(curl -sL https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r '.tag_name')
+          LATEST_TAG=$(curl -sL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r '.tag_name')
           echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
           echo "Upstream latest release: $LATEST_TAG"
 

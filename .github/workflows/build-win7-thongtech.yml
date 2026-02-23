@@ -43,17 +43,19 @@ jobs:
 
       - name: Resolve go-legacy-win7 version
         id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           INPUT_VER="${{ github.event.inputs.go_legacy_version }}"
           if [ -z "$INPUT_VER" ] || [ "$INPUT_VER" = "latest" ]; then
-            TAG=$(curl -sL https://api.github.com/repos/thongtech/go-legacy-win7/releases/latest | jq -r '.tag_name')
+            TAG=$(curl -sL -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/thongtech/go-legacy-win7/releases/latest | jq -r '.tag_name')
           else
             TAG="v${INPUT_VER}"
           fi
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Using go-legacy-win7 $TAG"
+          echo "Using go-legacy-win7 $TAG (version: $VERSION)"
 
       - name: Setup go-legacy-win7
         run: |
