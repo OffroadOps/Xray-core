@@ -1,0 +1,112 @@
+name: Sync Upstream & Auto Build Win7
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # 每6小时检测一次
+  workflow_dispatch:         # 也可以手动触发
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: win7-build
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/XTLS/Xray-core.git || true
+          git fetch upstream --tags
+
+      - name: Get latest upstream release tag
+        id: upstream
+        run: |
+          # 获取上游最新 release tag
+          LATEST_TAG=$(curl -sL https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r '.tag_name')
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "Upstream latest release: $LATEST_TAG"
+
+      - name: Check if we already built this version
+        id: check
+        run: |
+          TAG="${{ steps.upstream.outputs.latest_tag }}"
+          # 检查本仓库是否已有这个 tag 的 release
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG}-win7")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "already_built=true" >> $GITHUB_OUTPUT
+            echo "Version ${TAG}-win7 already built, skipping."
+          else
+            echo "already_built=false" >> $GITHUB_OUTPUT
+            echo "New version detected: $TAG, will build."
+          fi
+
+      - name: Sync upstream code
+        if: steps.check.outputs.already_built == 'false'
+        run: |
+          TAG="${{ steps.upstream.outputs.latest_tag }}"
+          # 合并上游 main 分支的最新代码
+          git fetch upstream main
+          git merge upstream/main --no-edit --allow-unrelated-histories || true
+          git push origin win7-build
+
+      - name: Create release and trigger build
+        if: steps.check.outputs.already_built == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ steps.upstream.outputs.latest_tag }}';
+            const win7Tag = `${tag}-win7`;
+
+            // 创建 tag
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${win7Tag}`,
+                sha: '${{ github.sha }}'
+              });
+            } catch (e) {
+              if (e.status !== 422) throw e;
+              console.log(`Tag ${win7Tag} already exists`);
+            }
+
+            // 创建 Release
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: win7Tag,
+              name: `Xray ${tag} (Win7/2008R2)`,
+              body: `Auto-built from upstream [XTLS/Xray-core ${tag}](https://github.com/XTLS/Xray-core/releases/tag/${tag}) using [thongtech/go-legacy-win7](https://github.com/thongtech/go-legacy-win7).\n\n支持 Windows 7 / Server 2008 R2。`,
+              draft: false,
+              prerelease: false
+            });
+
+            console.log(`Release created: ${release.data.html_url}`);
+
+            // 触发编译 workflow
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build-win7-thongtech.yml',
+              ref: 'win7-build',
+              inputs: {
+                upload_tag: win7Tag,
+                go_legacy_version: 'latest'
+              }
+            });
+
+            console.log('Build workflow triggered.');
