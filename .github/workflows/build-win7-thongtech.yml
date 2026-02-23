@@ -3,12 +3,14 @@ name: Build Win7 (thongtech/go-legacy-win7)
 on:
   workflow_dispatch:
     inputs:
+      upload_tag:
+        description: "上传到哪个 Release tag (如 v1.8.24-win7，留空则只生成 artifact)"
+        required: false
+        default: ""
       go_legacy_version:
-        description: "go-legacy-win7 版本 (如 1.26.0-1)"
+        description: "go-legacy-win7 版本 (如 1.26.0-1，留空用最新)"
         required: false
         default: "latest"
-  release:
-    types: [published]
 
 permissions:
   contents: write
@@ -36,6 +38,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          ref: win7-build
           fetch-depth: 0
 
       - name: Resolve go-legacy-win7 version
@@ -47,7 +50,6 @@ jobs:
           else
             TAG="v${INPUT_VER}"
           fi
-          # 从 tag 中提取版本号 (v1.26.0-1 -> 1.26.0-1)
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -88,7 +90,6 @@ jobs:
           cp ${GITHUB_WORKSPACE}/LICENSE ./build_assets/LICENSE
 
       - name: Create ZIP archive
-        shell: bash
         run: |
           pushd build_assets || exit 1
           touch -mt $(date +%Y01010000) *
@@ -101,13 +102,14 @@ jobs:
           done
 
       - name: Upload to release
+        if: github.event.inputs.upload_tag != ''
         uses: svenstaro/upload-release-action@v2
-        if: github.event_name == 'release'
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ./Xray-${{ matrix.assetname }}.zip*
-          tag: ${{ github.ref }}
+          tag: ${{ github.event.inputs.upload_tag }}
           file_glob: true
+          overwrite: true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
